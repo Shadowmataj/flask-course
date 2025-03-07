@@ -1,39 +1,83 @@
 """
 Resource to handle users endpoints.
 It works with:
-flask_smorest to create blueprints, routes, 
+flask_smorest to create blueprints, routes,
 arguments and responses (the last two based on schemas).
 """
 
+import os
+import requests
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from passlib.hash import pbkdf2_sha256
-from flask_jwt_extended import create_access_token, jwt_required, create_refresh_token, get_jwt, get_jwt_identity
+from sqlalchemy import or_
+from flask_jwt_extended import (
+    create_access_token,
+    jwt_required,
+    create_refresh_token,
+    get_jwt,
+    get_jwt_identity,
+)
 
 from db import db
 from blocklist import BLOCKLIST
 from models import UserModel
-from schemas import UserSchema
+from schemas import UserSchema, UserRegisterSchema
+
+
+def send_simple_message(username, email, text):
+    """Function to send an email."""
+    mailgun_domain = os.environ.get("MAILGUN_DOMAIN")
+    print("Sending email...")
+    return requests.post(
+        f"https://api.mailgun.net/v3/{mailgun_domain}/messages",
+        auth=("api", os.getenv("MAILGUN_API_KEY", "API_KEY")),
+        data={
+            "from": f"Mailgun Sandbox <postmaster@{mailgun_domain}>",
+            "to": f"Custumer <{email}>",
+            "subject": f"Hello {username}",
+            "text": text,
+        },
+        timeout=10,
+    )
 
 
 blp = Blueprint("users", __name__, description="Operations on tags")
 
+
 @blp.route("/register")
 class UserRegister(MethodView):
-    """Class to handle post """
+    """Class to handle post"""
 
-    @blp.arguments(UserSchema)
+    @blp.arguments(UserRegisterSchema)
     def post(self, user_data):
         """Endpoint to register a user."""
-        if UserModel.query.filter(UserModel.username == user_data["username"]).first():
-            abort(409, message="A user with that username already exists.")
+        if UserModel.query.filter(
+            or_(
+                UserModel.username == user_data["username"],
+                UserModel.email == user_data["email"],
+            )
+        ).first():
+            abort(409, message="A user with that username or email already exists.")
         user = UserModel(
-            username = user_data["username"],
-            password = pbkdf2_sha256.hash(user_data["password"])
+            username=user_data["username"],
+            password=pbkdf2_sha256.hash(user_data["password"]),
+            email=user_data["email"]
         )
         db.session.add(user)
         db.session.commit()
+
+        username = user_data["username"]
+        message = f"Congratulations {username}, you just register with us! You are truly awesome!"
+
+        send_simple_message(
+            username=username,
+            email=user_data["email"], 
+            text=message
+        )
+
         return {"message": "The user has been registered."}, 201
+
 
 @blp.route("/login")
 class UserLogin(MethodView):
@@ -42,27 +86,32 @@ class UserLogin(MethodView):
     @blp.arguments(UserSchema)
     def post(self, user_data):
         """Endpoint to login a user."""
-        user = UserModel.query.filter(UserModel.username == user_data["username"]).first()
+        user = UserModel.query.filter(
+            UserModel.username == user_data["username"]
+        ).first()
         if user and pbkdf2_sha256.verify(user_data["password"], user.password):
             access_token = create_access_token(identity=str(user.id), fresh=True)
             refresh_token = create_refresh_token(identity=str(user.id))
             return {"access_token": access_token, "refresh_token": refresh_token}
         abort(401, message="Invalid credentials.")
-        
+
 
 @blp.route("/refresh")
 class RefreshToken(MethodView):
     """Class to handle token refresh."""
+
     @jwt_required(refresh=True)
     def post(self):
         """Endpoint to handle token refresh."""
         current_user = get_jwt_identity()
         new_token = create_access_token(identity=current_user, fresh=False)
-        return{"access_token": new_token}
+        return {"access_token": new_token}
+
 
 @blp.route("/logout")
 class UserLogout(MethodView):
     """Class to handle the logout."""
+
     @jwt_required()
     def post(self):
         """Endpoint to handle the logout."""
@@ -70,9 +119,11 @@ class UserLogout(MethodView):
         BLOCKLIST.add(jti)
         return {"message": "Successfully logged out."}
 
+
 @blp.route("/user/<int:user_id>")
 class User(MethodView):
     """Class to handle the get and delete user by id."""
+
     @blp.response(200, UserSchema)
     def get(self, user_id):
         """Endpoint to get a specific user by the id."""
