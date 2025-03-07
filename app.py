@@ -41,7 +41,7 @@ def create_app(db_url=None):
 
     api = Api(app)
 
-    app.config["JWT_SECRET_KEY"] = "224804603518500294277282450094052445950"
+    app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET", "224804603518500294277282450094052445950")
     jwt = JWTManager(app)
 
     @jwt.token_in_blocklist_loader
