@@ -3,6 +3,7 @@
 __pycache__
 .flaskenv
 instance
-.env.devel
+.env
+.env.*
 *.pyc
 .DS_Store

@@ -49,7 +49,7 @@ class UserRegister(MethodView):
         db.session.add(user)
         db.session.commit()
 
-        current_app.queue.enqueue(send_user_registration_email, user.email, user.username)
+        current_app.queue.enqueue(send_user_registration_email, user_data["email"], user_data["username"])
 
         return {"message": "The user has been registered."}, 201
 
