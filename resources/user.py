@@ -5,8 +5,7 @@ flask_smorest to create blueprints, routes,
 arguments and responses (the last two based on schemas).
 """
 
-import os
-import requests
+from flask import current_app
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 from passlib.hash import pbkdf2_sha256
@@ -23,24 +22,7 @@ from db import db
 from blocklist import BLOCKLIST
 from models import UserModel
 from schemas import UserSchema, UserRegisterSchema
-
-
-def send_simple_message(username, email, text):
-    """Function to send an email."""
-    mailgun_domain = os.environ.get("MAILGUN_DOMAIN")
-    print("Sending email...")
-    return requests.post(
-        f"https://api.mailgun.net/v3/{mailgun_domain}/messages",
-        auth=("api", os.getenv("MAILGUN_API_KEY", "API_KEY")),
-        data={
-            "from": f"Mailgun Sandbox <postmaster@{mailgun_domain}>",
-            "to": f"Custumer <{email}>",
-            "subject": f"Hello {username}",
-            "text": text,
-        },
-        timeout=10,
-    )
-
+from task import send_user_registration_email
 
 blp = Blueprint("users", __name__, description="Operations on tags")
 
@@ -67,14 +49,7 @@ class UserRegister(MethodView):
         db.session.add(user)
         db.session.commit()
 
-        username = user_data["username"]
-        message = f"Congratulations {username}, you just register with us! You are truly awesome!"
-
-        send_simple_message(
-            username=username,
-            email=user_data["email"], 
-            text=message
-        )
+        current_app.queue.enqueue(send_user_registration_email, user.email, user.username)
 
         return {"message": "The user has been registered."}, 201
 
